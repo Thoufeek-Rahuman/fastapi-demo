@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 
 from app.database import get_db
 from app.models.product import Product
@@ -10,9 +10,45 @@ router = APIRouter(prefix="/products", tags=["products"])
 
 
 @router.get("/", response_model=List[ProductResponse])
-def get_all_products(db: Session = Depends(get_db)):
-    """Get all products."""
-    products = db.query(Product).all()
+def get_all_products(
+    db: Session = Depends(get_db),
+    skip: int = Query(0, ge=0, description="Number of products to skip (pagination)"),
+    limit: int = Query(10, ge=1, le=100, description="Max products to return (1-100)"),
+    search: Optional[str] = Query(None, description="Search by product name"),
+    min_price: Optional[float] = Query(None, ge=0, description="Minimum price filter"),
+    max_price: Optional[float] = Query(None, ge=0, description="Maximum price filter"),
+    in_stock: Optional[bool] = Query(None, description="Filter by stock availability"),
+):
+    """
+    Get all products with optional filtering and pagination.
+    
+    - **skip**: Skip N products (for pagination)
+    - **limit**: Return at most N products
+    - **search**: Filter by name (case-insensitive)
+    - **min_price**: Only products >= this price
+    - **max_price**: Only products <= this price
+    - **in_stock**: True = quantity > 0, False = quantity = 0
+    """
+    query = db.query(Product)
+    
+    # Apply filters
+    if search:
+        query = query.filter(Product.name.ilike(f"%{search}%"))
+    
+    if min_price is not None:
+        query = query.filter(Product.price >= min_price)
+    
+    if max_price is not None:
+        query = query.filter(Product.price <= max_price)
+    
+    if in_stock is not None:
+        if in_stock:
+            query = query.filter(Product.quantity > 0)
+        else:
+            query = query.filter(Product.quantity == 0)
+    
+    # Apply pagination
+    products = query.offset(skip).limit(limit).all()
     return products
 
 
